@@ -15,7 +15,7 @@ import {
     CORSError,
     HttpError,
     HttpHeaders,
-    HttpResponse,
+    HttpResponse, HttpRequestOptionsInterface,
 } from '@runopencode/http';
 import {
     HttpClient as AngularHttpClient,
@@ -33,8 +33,8 @@ export class AngularHttpAdapter implements HttpAdapterInterface {
         this._http = http;
     }
 
-    public execute<T>(request: HttpRequestInterface): Observable<HttpResponseInterface<T>> {
-        let options: {
+    public execute<T>(request: HttpRequestInterface, options: HttpRequestOptionsInterface): Observable<HttpResponseInterface<T>> {
+        let angularRequestOptions: {
             body?: any;
             headers?: AngularHttpHeaders | {
                 [header: string]: string | string[];
@@ -48,21 +48,21 @@ export class AngularHttpAdapter implements HttpAdapterInterface {
             withCredentials?: boolean;
         } = {
             observe:      'response',
-            responseType: 'text',
+            responseType: options.responseType,
         };
 
         if (request.body) {
-            options.body = request.body;
+            angularRequestOptions.body = request.body;
         }
 
         if (request.headers) {
-            options.headers = AngularHttpAdapter.transform(request.headers);
+            angularRequestOptions.headers = AngularHttpAdapter.transform(request.headers);
         }
 
         return this
             ._http
-            .request(request.method, request.url, options)
-            .pipe(catchError((error: AngularHttpErrorResponse) => throwError(AngularHttpAdapter.transformError(request, error))))
+            .request(request.method, request.url, angularRequestOptions)
+            .pipe(catchError((error: AngularHttpErrorResponse) => throwError(AngularHttpAdapter.transformError(request, error, options))))
             .pipe(map((response: AngularHttpResponse<any>) => AngularHttpAdapter.transformResponse<T>(response)));
     }
 
@@ -70,12 +70,12 @@ export class AngularHttpAdapter implements HttpAdapterInterface {
         return new HttpResponse<T>(
             response.url,
             response.status,
-            response.body,
             AngularHttpAdapter.reverse(response.headers),
+            Promise.resolve(204 === response.status ? null : response.body),
         );
     }
 
-    private static transformError(request: HttpRequestInterface, error: AngularHttpErrorResponse): Error {
+    private static transformError(request: HttpRequestInterface, error: AngularHttpErrorResponse, options: HttpRequestOptionsInterface): Error {
         if (error.error instanceof ErrorEvent || 0 === error.status) {
             return new ClientError(
                 request.url,
@@ -99,13 +99,25 @@ export class AngularHttpAdapter implements HttpAdapterInterface {
             );
         }
 
-        return new HttpError<any>(
+        return new HttpError(
             error.url,
             error.status,
             request.method,
             new HttpHeaders(headers),
             error.message,
-            error.error,
+            (): Promise<string | object> => {
+                if ('text' === options.errorType) {
+                    return Promise.resolve(error.error);
+                }
+
+                return new Promise<string | object>((resolve: (arg: object) => void, reject: (e: Error) => void) => {
+                    try {
+                        resolve(JSON.parse(error.error));
+                    } catch (e) {
+                        reject(e);
+                    }
+                });
+            },
         );
     }
 
