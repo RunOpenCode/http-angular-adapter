@@ -107,12 +107,14 @@ export class AngularHttpAdapter implements HttpAdapterInterface {
             error.message,
             (): Promise<string | object> => {
                 if ('text' === options.errorType) {
-                    return Promise.resolve(error.error);
+                    let text: string = 'string' === typeof error.error ? error.error : JSON.stringify(error.error);
+                    return Promise.resolve(text);
                 }
 
                 return new Promise<string | object>((resolve: (arg: object) => void, reject: (e: Error) => void) => {
                     try {
-                        resolve(JSON.parse(error.error));
+                        let object: object = 'object' === typeof error.error ? error.error : JSON.parse(error.error);
+                        resolve(object);
                     } catch (e) {
                         reject(e);
                     }
